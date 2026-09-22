@@ -3,7 +3,9 @@ package eu.kelosocial.android
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.provider.MediaStore
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,6 +23,32 @@ import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     private var fileChooserCallback: android.webkit.ValueCallback<Array<Uri>>? = null
+    private var pendingCaptureUri: Uri? = null
+
+    private val takePicture = registerForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && pendingCaptureUri != null) {
+            fileChooserCallback?.onReceiveValue(arrayOf(pendingCaptureUri!!))
+        } else {
+            fileChooserCallback?.onReceiveValue(null)
+        }
+        fileChooserCallback = null
+        pendingCaptureUri = null
+    }
+
+    private val captureVideo = registerForActivityResult(
+        ActivityResultContracts.CaptureVideo()
+    ) { success ->
+        if (success && pendingCaptureUri != null) {
+            fileChooserCallback?.onReceiveValue(arrayOf(pendingCaptureUri!!))
+        } else {
+            fileChooserCallback?.onReceiveValue(null)
+        }
+        fileChooserCallback = null
+        pendingCaptureUri = null
+    }
+
 
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.GetMultipleContents()
@@ -79,6 +107,37 @@ class MainActivity : ComponentActivity() {
                         else -> "*/*"
                     }
 
+                    if (capture && (wantsImage || wantsVideo)) {
+                        if (ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.CAMERA
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            this@MainActivity.fileChooserCallback?.onReceiveValue(null)
+                            this@MainActivity.fileChooserCallback = null
+                            Toast.makeText(
+                                this@MainActivity,
+                                "L'accès à l'appareil photo est nécessaire.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return false
+                        }
+
+                        pendingCaptureUri = createCaptureUri(wantsVideo)
+                        if (pendingCaptureUri == null) {
+                            this@MainActivity.fileChooserCallback?.onReceiveValue(null)
+                            this@MainActivity.fileChooserCallback = null
+                            return false
+                        }
+
+                        if (wantsVideo) {
+                            captureVideo.launch(pendingCaptureUri)
+                        } else {
+                            takePicture.launch(pendingCaptureUri)
+                        }
+                        return true
+                    }
+
                     return try {
                         filePicker.launch(mimeType)
                         true
@@ -94,6 +153,25 @@ class MainActivity : ComponentActivity() {
         }
 
         setContentView(webView)
+    }
+
+    private fun createCaptureUri(video: Boolean): Uri? {
+        val values = ContentValues().apply {
+            put(
+                MediaStore.MediaColumns.DISPLAY_NAME,
+                "kelo_" + System.currentTimeMillis() + if (video) ".mp4" else ".jpg"
+            )
+            put(
+                MediaStore.MediaColumns.MIME_TYPE,
+                if (video) "video/mp4" else "image/jpeg"
+            )
+        }
+        val collection = if (video) {
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        return contentResolver.insert(collection, values)
     }
 
     private fun createNotificationChannel() {
