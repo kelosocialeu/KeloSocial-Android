@@ -5,10 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ContentValues
 import android.content.pm.PackageManager
-import android.provider.MediaStore
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -28,11 +28,9 @@ class MainActivity : ComponentActivity() {
     private val takePicture = registerForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && pendingCaptureUri != null) {
-            fileChooserCallback?.onReceiveValue(arrayOf(pendingCaptureUri!!))
-        } else {
-            fileChooserCallback?.onReceiveValue(null)
-        }
+        fileChooserCallback?.onReceiveValue(
+            if (success && pendingCaptureUri != null) arrayOf(pendingCaptureUri!!) else null
+        )
         fileChooserCallback = null
         pendingCaptureUri = null
     }
@@ -40,15 +38,12 @@ class MainActivity : ComponentActivity() {
     private val captureVideo = registerForActivityResult(
         ActivityResultContracts.CaptureVideo()
     ) { success ->
-        if (success && pendingCaptureUri != null) {
-            fileChooserCallback?.onReceiveValue(arrayOf(pendingCaptureUri!!))
-        } else {
-            fileChooserCallback?.onReceiveValue(null)
-        }
+        fileChooserCallback?.onReceiveValue(
+            if (success && pendingCaptureUri != null) arrayOf(pendingCaptureUri!!) else null
+        )
         fileChooserCallback = null
         pendingCaptureUri = null
     }
-
 
     private val filePicker = registerForActivityResult(
         ActivityResultContracts.GetMultipleContents()
@@ -100,14 +95,15 @@ class MainActivity : ComponentActivity() {
                     this@MainActivity.fileChooserCallback?.onReceiveValue(null)
                     this@MainActivity.fileChooserCallback = filePathCallback
 
-                    val acceptTypes = fileChooserParams?.acceptTypes?.filter { it.isNotBlank() } ?: emptyList()
-                    val mimeType = when {
-                        acceptTypes.any { it.startsWith("video/") } -> "video/*"
-                        acceptTypes.any { it.startsWith("image/") } -> "image/*"
-                        else -> "*/*"
-                    }
+                    val acceptTypes = fileChooserParams?.acceptTypes
+                        ?.filter { it.isNotBlank() }
+                        ?: emptyList()
 
-                    if (capture && (wantsImage || wantsVideo)) {
+                    val wantsVideo = acceptTypes.any { it.startsWith("video/") }
+                    val wantsImage = acceptTypes.any { it.startsWith("image/") } || !wantsVideo
+                    val captureRequested = fileChooserParams?.isCaptureEnabled == true
+
+                    if (captureRequested && (wantsImage || wantsVideo)) {
                         if (ContextCompat.checkSelfPermission(
                                 this@MainActivity,
                                 Manifest.permission.CAMERA
@@ -138,12 +134,22 @@ class MainActivity : ComponentActivity() {
                         return true
                     }
 
+                    val mimeType = when {
+                        wantsVideo -> "video/*"
+                        wantsImage -> "image/*"
+                        else -> "*/*"
+                    }
+
                     return try {
                         filePicker.launch(mimeType)
                         true
                     } catch (_: Exception) {
                         this@MainActivity.fileChooserCallback = null
-                        Toast.makeText(this@MainActivity, "Impossible d'ouvrir les fichiers.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Impossible d'ouvrir les fichiers.",
+                            Toast.LENGTH_SHORT
+                        ).show()
                         false
                     }
                 }
@@ -166,11 +172,13 @@ class MainActivity : ComponentActivity() {
                 if (video) "video/mp4" else "image/jpeg"
             )
         }
+
         val collection = if (video) {
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         } else {
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         }
+
         return contentResolver.insert(collection, values)
     }
 
@@ -183,13 +191,18 @@ class MainActivity : ComponentActivity() {
             ).apply {
                 description = "Notifications de Kelo Social"
             }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 
     private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
